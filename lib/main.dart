@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:sauth/sample.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 
-Future<Interpreter> loadModel() {
-  return Interpreter.fromAsset('assets/CONV914.tflite');
+class IsConnectedModel extends ChangeNotifier {
+  bool _connected = false;
+  bool get connected => _connected;
+  set connected(bool value) {
+    _connected = value;
+    notifyListeners();
+  }
 }
 
 class PointsModel extends ChangeNotifier {
@@ -34,7 +39,7 @@ class ModelOutputModel extends ChangeNotifier {
 
 List trace = [];
 DateTime? startedDrawing;
-late Interpreter interpreter;
+String serverIP = "192.168.1.70";
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,13 +48,12 @@ Future<void> main() async {
   // Hide the system navigation bar
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-  interpreter = await loadModel();
-
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (context) => PointsModel()),
         ChangeNotifierProvider(create: (context) => ModelOutputModel()),
+        ChangeNotifierProvider(create: (context) => IsConnectedModel()),
       ],
       builder: (context, child) => AndroidApp(),
     ),
@@ -78,6 +82,14 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       persistentFooterAlignment: AlignmentDirectional.center,
       persistentFooterButtons: [
+        Consumer<IsConnectedModel>(
+          builder: (context, value, child) {
+            return IconButton(
+              onPressed: () => showTextInputDialog(context),
+              icon: Icon(Icons.clear_rounded, color: value.connected ? Colors.blue : Colors.red),
+            );
+          },
+        ),
         Consumer<PointsModel>(
           builder: (context, value, child) {
             return IconButton(
@@ -199,19 +211,68 @@ void clearCanvas(BuildContext context) {
   trace.clear();
 }
 
-void infer(BuildContext context) {
-  Sample sample = Sample(trace);
-  // debugger();
-  final modelInput = [sample.processedInput];
-  final modelOutput = List.filled(1 * 1, 0.0).reshape([1, 1]);
+void infer(BuildContext context) async {
+  if (trace.length > 1215 * 3) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sample is too long. Inference aborted.'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.red,
+      ),
+    );
 
-  // log('Input shape: ${interpreter.getInputTensor(0).shape}');
-  // log('Output shape: ${interpreter.getOutputTensor(0).shape}');
+    log("Sample is too long. Inference aborted.");
+    clearCanvas(context);
+    return;
+  }
+  double response = await sendRequest();
+  if (context.mounted) {
+    Provider.of<ModelOutputModel>(context, listen: false).value = response;
+    clearCanvas(context);
+  }
+}
 
-  interpreter.run(modelInput, modelOutput);
+Future<double> sendRequest() async {
+  final url = Uri.parse('http://$serverIP:8000/data');
+  final response = await http.post(
+    url,
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({'trace': trace.join(',')}),
+  );
 
-  log("Model output: ${modelOutput[0][0]}");
-  Provider.of<ModelOutputModel>(context, listen: false).value = modelOutput[0][0];
+  if (response.statusCode == 200) {
+    log('Response: ${response.body}');
+    return double.parse(json.decode(response.body)['prediction']);
+  } else {
+    log('Failed with status: ${response.statusCode}');
+  }
+  return -1;
+}
 
-  clearCanvas(context);
+Future<void> showTextInputDialog(BuildContext context) async {
+  String userInput = '';
+  await showDialog(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text('Enter Text'),
+        content: TextField(
+          autofocus: true,
+          decoration: InputDecoration(hintText: 'Type something...'),
+          onChanged: (value) {
+            userInput = value;
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              serverIP = userInput;
+              Navigator.of(context).pop();
+            },
+            child: Text('OK'),
+          ),
+        ],
+      );
+    },
+  );
 }
