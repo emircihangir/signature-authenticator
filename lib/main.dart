@@ -86,7 +86,7 @@ class HomePage extends StatelessWidget {
           builder: (context, value, child) {
             return IconButton(
               onPressed: () => showTextInputDialog(context),
-              icon: Icon(Icons.clear_rounded, color: value.connected ? Colors.blue : Colors.red),
+              icon: Icon(Icons.wifi_rounded, color: value.connected ? Colors.blue : Colors.red),
             );
           },
         ),
@@ -249,25 +249,49 @@ Future<double> sendRequest() async {
   return -1;
 }
 
+Future<bool> connectToServer() async {
+  final url = Uri.parse('http://$serverIP:8000/');
+  late http.Response response;
+  try {
+    response = await http.get(url, headers: {'Content-Type': 'application/json'});
+  } on ArgumentError {
+    return false;
+  }
+
+  if (response.statusCode == 200) {
+    log('Response: ${response.body}');
+    return response.body == "Hello!";
+  } else {
+    log('Failed with status: ${response.statusCode}');
+  }
+  return false;
+}
+
 Future<void> showTextInputDialog(BuildContext context) async {
   String userInput = '';
   await showDialog(
     context: context,
     builder: (context) {
       return AlertDialog(
+        backgroundColor: Colors.white,
         title: Text('Enter Text'),
         content: TextField(
           autofocus: true,
-          decoration: InputDecoration(hintText: 'Type something...'),
+          decoration: InputDecoration(hintText: 'IP address'),
+          keyboardType: TextInputType.number,
           onChanged: (value) {
             userInput = value;
           },
         ),
         actions: [
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               serverIP = userInput;
-              Navigator.of(context).pop();
+              bool connected = await connectToServer();
+              if (context.mounted) {
+                Provider.of<IsConnectedModel>(context, listen: false).connected = connected;
+                if (connected) Navigator.of(context).pop();
+              }
             },
             child: Text('OK'),
           ),
