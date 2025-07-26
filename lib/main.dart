@@ -6,7 +6,7 @@ import 'package:sauth/sample.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 Future<Interpreter> loadModel() {
-  return Interpreter.fromAsset('assets/CONV007.tflite');
+  return Interpreter.fromAsset('assets/CONV914.tflite');
 }
 
 class PointsModel extends ChangeNotifier {
